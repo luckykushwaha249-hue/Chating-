@@ -1,0 +1,82 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:  # manual trigger from GitHub UI
+
+jobs:
+  build:
+    runs-on: ubuntu-20.04  # stable, supported by Buildozer
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # ---------- Install system dependencies ----------
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            git zip unzip openjdk-17-jdk \
+            python3-pip autoconf libtool \
+            pkg-config zlib1g-dev libncurses5-dev \
+            libncursesw5-dev libtinfo5 cmake libffi-dev \
+            libssl-dev
+
+      # ---------- Set up Python (3.11) ----------
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11.8'
+
+      # ---------- Install Buildozer & dependencies ----------
+      - name: Install Buildozer
+        run: |
+          pip install --upgrade pip
+          pip install buildozer cython
+          # Ensure p4a (python-for-android) is the correct version
+          pip install 'p4a<2025.0.0'  # pin stable, but we also set branch in spec
+
+      # ---------- Cache Android SDK / NDK (speeds up builds) ----------
+      - name: Cache Android SDK
+        id: cache-sdk
+        uses: actions/cache@v3
+        with:
+          path: ~/.buildozer/android/platform/android-sdk
+          key: ${{ runner.os }}-android-sdk-${{ hashFiles('buildozer.spec') }}
+          restore-keys: |
+            ${{ runner.os }}-android-sdk-
+
+      - name: Cache Android NDK
+        id: cache-ndk
+        uses: actions/cache@v3
+        with:
+          path: ~/.buildozer/android/platform/android-ndk
+          key: ${{ runner.os }}-android-ndk-${{ hashFiles('buildozer.spec') }}
+          restore-keys: |
+            ${{ runner.os }}-android-ndk-
+
+      - name: Cache Buildozer global cache
+        uses: actions/cache@v3
+        with:
+          path: ~/.buildozer
+          key: ${{ runner.os }}-buildozer-${{ hashFiles('buildozer.spec') }}
+          restore-keys: |
+            ${{ runner.os }}-buildozer-
+
+      # ---------- Build the APK ----------
+      - name: Build with Buildozer
+        run: |
+          # Buildozer will download SDK/NDK if not cached
+          buildozer -v android debug
+
+      # ---------- Upload APK as artifact ----------
+      - name: Upload APK
+        uses: actions/upload-artifact@v3
+        with:
+          name: blechat-apk
+          path: bin/*.apk
